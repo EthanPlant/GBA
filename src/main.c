@@ -1,64 +1,73 @@
+#include "sprite.h"
+#include <string.h>
+
 typedef unsigned int uint32;
 typedef unsigned short uint16;
 typedef unsigned char uint8;
 
-#define REG_DISPLAYCONTROL *((volatile uint32*)(0x04000000))
-#define VIDEOMODE_3 0x0003
-#define BGMODE_2 0x0400
+typedef uint32 tile[16];
+typedef tile tileBlock[256];
 
-#define SCREENBUFFER ((volatile uint16*)0x06000000)
-#define SCREEN_W 240
-#define SCREEN_H 160
+typedef struct objectAttributes
+{
+    uint16 attr0;
+    uint16 attr1;
+    uint16 attr2;
+    uint16 pad;
+} __attribute__((packed, aligned(4))) objectAttributes;
 
-#define REG_VCOUNT (* (volatile uint16*) 0x04000006)
+#define REG_DISPLAYCONTROL *((volatile uint16*)(0x04000000))
 
-inline void vsync()
+#define VIDEOMODE_0 0x0000
+#define ENABLE_OBJECTS 0x1000
+#define MAPPINGMODE_1D 0x0040
+
+#define MEM_PALETTE ((uint16*) (0x05000200))
+#define MEM_VRAM ((volatile uint16*) 0x6000000)
+#define MEM_TILE ((tileBlock*) 0x6000000)
+
+#define MEM_OAM ((volatile objectAttributes* ) 0x07000000)
+
+#define REG_VCOUNT (*(volatile uint16*) 0x04000006)
+
+#define SCREEN_WIDTH 240
+#define SCREEN_HEIGHT 160
+
+void uploadPaletteMem(void)
+{
+    memcpy(MEM_PALETTE, spritePal, spritePalLen);
+}
+
+void uploadTileMem(void)
+{
+    memcpy(&MEM_TILE[4][1], spriteTiles, spriteTilesLen);
+}
+
+inline void vsync(void)
 {
     while (REG_VCOUNT >= 160);
     while (REG_VCOUNT < 160);
 }
 
-inline uint16 makeCol(uint8 red, uint8 green, uint8 blue)
+int main(void)
 {
-    return (red & 0x1F) | (green & 0x1F) << 5 | (blue & 0x1F) << 10;
-}
+    uploadPaletteMem();
+    uploadTileMem();
 
-void drawRect(int left, int top, int width, int height, uint16 color)
-{
-    for (int y = 0; y < height; ++y)
-    {
-        for (int x = 0; x < width; ++x)
-        {
-            SCREENBUFFER[(top + y) * SCREEN_W + left + x] = color;
-        }
-    }
-}
+    volatile objectAttributes *spriteAttribs = &MEM_OAM[0];
+    spriteAttribs->attr0 = 0x2032;
+    spriteAttribs->attr1 = 0x4064;
+    spriteAttribs->attr2 = 2;
 
-int main()
-{
-    REG_DISPLAYCONTROL = VIDEOMODE_3 | BGMODE_2;
-
-    for (int i = 0; i < SCREEN_W * SCREEN_H; ++i)
-    {
-        SCREENBUFFER[i] = makeCol(0, 0, 0);
-    }
+    REG_DISPLAYCONTROL = VIDEOMODE_0 | ENABLE_OBJECTS | MAPPINGMODE_1D;
 
     int x = 0;
 
     while(1)
     {
         vsync();
-        
-        if (x > SCREEN_W * (SCREEN_H / 10)) x = 0;
-        if (x)
-        {
-            int last = x - 10;
-            drawRect(last % SCREEN_W, (last / SCREEN_W) * 10, 10, 10, makeCol(0, 0, 0));
-        }
-
-        drawRect(x % SCREEN_W, (x / SCREEN_W) * 10, 10, 10, makeCol(0, 0, 31));
-        x += 10;
+        x = (x + 1) % (SCREEN_WIDTH);
+        spriteAttribs->attr1 = 0x4000 | (0x1FF & x);
     }
-
     return 0;
 }
